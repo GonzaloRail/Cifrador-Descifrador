@@ -11,36 +11,30 @@ function mostrarModulo(id, btn) {
 }
 
 /**
- * ALFABETO UNIFICADO (38 caracteres)
- * Especificación: A-Z (incluyendo Ñ), espacio, 0-9
+ * ALFABETOS ESPECÍFICOS
  */
-/**
- * ALFABETO UNIFICADO (37 caracteres)
- * Especificación: A-Z (incluyendo Ñ), 0-9
- */
-const ALPHABET = {
-    chars: 'ABCDEFGHIJKLMNÑOPQRSTUVWXYZ0123456789',
+const ALPHABET_VIGENERE = {
+    chars: 'ABCDEFGHIJKLMNÑOPQRSTUVWXYZ0123456789', // 37 caracteres (Sin espacio)
     size: 37
 };
 
+const ALPHABET_TRANSPO = {
+    chars: 'ABCDEFGHIJKLMNÑOPQRSTUVWXYZ 0123456789', // 38 caracteres (CON espacio)
+    size: 38
+};
+
 /**
- * NORMALIZACIÓN AL ESTILO PYTHON
- * Limpia tildes, protege la Ñ, pasa a mayúsculas y elimina cualquier carácter no válido.
+ * NORMALIZACIÓN DINÁMICA
+ * Ahora recibe 'allowedChars' para saber qué caracteres dejar pasar.
  */
-function normalizeText(text) {
-    // 1. Pasa a mayúsculas y protege la Ñ reemplazándola por un carácter temporal (§)
+function normalizeText(text, allowedChars) {
     let upperText = text.toUpperCase().replace(/Ñ/g, '§');
-
-    // 2. Elimina las tildes (equivalente a unicodedata.normalize('NFD') en Python)
     upperText = upperText.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-
-    // 3. Restaura la Ñ
     let resultText = upperText.replace(/§/g, 'Ñ');
 
-    // 4. Filtra dejando ÚNICAMENTE los caracteres que existen en nuestro alfabeto
     let finalString = "";
     for (let char of resultText) {
-        if (ALPHABET.chars.includes(char)) {
+        if (allowedChars.includes(char)) {
             finalString += char;
         }
     }
@@ -76,22 +70,22 @@ const vigenere = {
     process(mode) {
         this.hideError();
         try {
-            // Usamos nuestra nueva normalización estricta
-            const text = normalizeText(this.msg.value);
-            const key = normalizeText(this.key.value);
+            const alphabet = ALPHABET_VIGENERE;
+            // Pasamos los caracteres permitidos a la función
+            const text = normalizeText(this.msg.value, alphabet.chars);
+            const key = normalizeText(this.key.value, alphabet.chars);
 
-            // Validación al estilo Python: ¿Quedó algo después de limpiar?
             if (!text || !key) {
                 return this.showError("El mensaje y la clave están vacíos o no contienen caracteres válidos.");
             }
-
+            // ... el resto de tu código vigenere se mantiene exactamente igual
             const alphabet = ALPHABET;
             const n = alphabet.size;
             const keyLen = key.length;
             let result = '';
             let stepsData = [];
 
-            // Iteración directa como en Python
+            // Iteración directa 
             for (let i = 0; i < text.length; i++) {
                 let m_idx = alphabet.chars.indexOf(text[i]);
                 let k_char = key[i % keyLen];
@@ -179,39 +173,56 @@ const transpo = {
     process(mode) {
         this.hideError();
         try {
-            const text = preprocessAndValidate(this.msg.value);
-            const key = preprocessAndValidate(this.key.value);
+            const alphabet = ALPHABET_TRANSPO;
+            
+            // Usamos nuestra nueva función de limpieza pasándole el alfabeto con espacio
+            let text = normalizeText(this.msg.value, alphabet.chars);
+            let key = normalizeText(this.key.value, alphabet.chars);
 
             if (!text || !key) {
-                return this.showError("Completa los campos");
+                return this.showError("Completa los campos con caracteres válidos.");
             }
 
-            const alphabet = ALPHABET;
             const cols = key.length;
             const rows = Math.ceil(text.length / cols);
+            
+            // --- EL TRUCO DE PYTHON ---
+            // Rellenamos el texto con espacios al final para hacer una matriz perfecta
+            text = text.padEnd(rows * cols, ' ');
+
             const { keyArr, order } = this.getOrder(key);
             let grid = Array.from({ length: rows }, () => new Array(cols).fill(''));
             let result = '';
 
             if (mode === 'enc') {
-                for (let i = 0; i < text.length; i++) grid[Math.floor(i/cols)][i%cols] = text[i];
+                // Llenamos la matriz
+                for (let i = 0; i < text.length; i++) {
+                    grid[Math.floor(i/cols)][i%cols] = text[i];
+                }
+                // Leemos las columnas ordenadas
                 keyArr.forEach(col => {
-                    for (let r = 0; r < rows; r++) if (grid[r][col.i]) result += grid[r][col.i];
+                    for (let r = 0; r < rows; r++) {
+                        // Ya no necesitamos validar si la celda existe, porque 
+                        // rellenamos con espacios (matriz perfecta)
+                        result += grid[r][col.i]; 
+                    }
                 });
-            } else {
+            } else { // dec
                 let k = 0;
                 keyArr.forEach(col => {
                     for (let r = 0; r < rows; r++) {
-                        if (r * cols + col.i < text.length) grid[r][col.i] = text[k++];
+                        grid[r][col.i] = text[k++];
                     }
                 });
-                for (let r = 0; r < rows; r++) result += grid[r].join('');
+                for (let r = 0; r < rows; r++) {
+                    result += grid[r].join('');
+                }
             }
 
             this.res.innerText = result;
             this.data = { grid, key, order, rows, cols, alphabet };
         } catch (e) {
-            this.showError(e.message);
+            this.showError("Error inesperado: " + e.message);
         }
     },
 
