@@ -56,6 +56,11 @@ textarea, input, select {
 }
 textarea:focus, input:focus { border-color: var(--primary); }
 
+.alphabet-info {
+    background: #f1f5f9; padding: 0.8rem; border-radius: 8px;
+    font-size: 0.85rem; color: #64748b; font-family: 'Courier New', monospace;
+}
+
 .actions { display: flex; gap: 1rem; margin-bottom: 2rem; }
 .btn {
     flex: 1; padding: 0.8rem; border-radius: 8px; border: none;

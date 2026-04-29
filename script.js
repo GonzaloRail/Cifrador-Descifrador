@@ -11,53 +11,45 @@ function mostrarModulo(id, btn) {
 }
 
 /**
- * ALFABETOS DISPONIBLES
+ * ALFABETO UNIFICADO (38 caracteres)
+ * Especificación: A-Z (incluyendo Ñ), espacio, 0-9
  */
-const alphabets = {
-    std: {
-        name: 'Español Unificado (38)',
-        chars: 'ABCDEFGHIJKLMNÑOPQRSTUVWXYZ 0123456789',
-        size: 38
-    },
-    en: {
-        name: 'Inglés (26)',
-        chars: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ',
-        size: 26
-    },
-    es: {
-        name: 'Español (27)',
-        chars: 'ABCDEFGHIJKLMNÑOPQRSTUVWXYZ',
-        size: 27
-    }
+/**
+ * ALFABETO UNIFICADO (37 caracteres)
+ * Especificación: A-Z (incluyendo Ñ), 0-9
+ */
+const ALPHABET = {
+    chars: 'ABCDEFGHIJKLMNÑOPQRSTUVWXYZ0123456789',
+    size: 37
 };
 
-function getAlphabet(id) {
-    return alphabets[document.getElementById(id).value];
-}
+/**
+ * NORMALIZACIÓN AL ESTILO PYTHON
+ * Limpia tildes, protege la Ñ, pasa a mayúsculas y elimina cualquier carácter no válido.
+ */
+function normalizeText(text) {
+    // 1. Pasa a mayúsculas y protege la Ñ reemplazándola por un carácter temporal (§)
+    let upperText = text.toUpperCase().replace(/Ñ/g, '§');
 
-const ACCENT_MAP = {
-    'Á': 'A', 'É': 'E', 'Í': 'I', 'Ó': 'O', 'Ú': 'U', 'Ü': 'U',
-    'á': 'A', 'é': 'E', 'í': 'I', 'ó': 'O', 'ú': 'U', 'ü': 'U'
-};
+    // 2. Elimina las tildes (equivalente a unicodedata.normalize('NFD') en Python)
+    upperText = upperText.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 
-function normalizeText(text, alphabet) {
-    return text.toUpperCase().split('').map(c => ACCENT_MAP[c] || c).join('');
-}
+    // 3. Restaura la Ñ
+    let resultText = upperText.replace(/§/g, 'Ñ');
 
-function validateText(text, alphabet) {
-    const validChars = new Set(alphabet.chars);
-    const invalidChars = text.split('').filter(c => !validChars.has(c));
-    if (invalidChars.length > 0) {
-        throw new Error(`Caracteres inválidos detectados: ${[...new Set(invalidChars)].join(', ')}`);
+    // 4. Filtra dejando ÚNICAMENTE los caracteres que existen en nuestro alfabeto
+    let finalString = "";
+    for (let char of resultText) {
+        if (ALPHABET.chars.includes(char)) {
+            finalString += char;
+        }
     }
-    return true;
+    
+    return finalString;
 }
 
-function preprocessAndValidate(text, alphabet) {
-    const normalized = normalizeText(text, alphabet);
-    validateText(normalized, alphabet);
-    return normalized;
-}
+// Ya no necesitamos 'validateText' que lanza errores, porque 'normalizeText' 
+// ahora filtra automáticamente la basura, tal como lo hace tu Python.
 
 /**
  * LÓGICA VIGENÈRE
@@ -84,40 +76,51 @@ const vigenere = {
     process(mode) {
         this.hideError();
         try {
-            const alphabet = getAlphabet('alphabet');
-            const text = preprocessAndValidate(this.msg.value, alphabet);
-            const key = preprocessAndValidate(this.key.value, alphabet);
+            // Usamos nuestra nueva normalización estricta
+            const text = normalizeText(this.msg.value);
+            const key = normalizeText(this.key.value);
 
+            // Validación al estilo Python: ¿Quedó algo después de limpiar?
             if (!text || !key) {
-                return this.showError("Completa todos los campos");
+                return this.showError("El mensaje y la clave están vacíos o no contienen caracteres válidos.");
             }
 
+            const alphabet = ALPHABET;
+            const n = alphabet.size;
+            const keyLen = key.length;
             let result = '';
-            let keyIdx = 0;
             let stepsData = [];
 
+            // Iteración directa como en Python
             for (let i = 0; i < text.length; i++) {
-                let char = text[i];
-                let idx = alphabet.chars.indexOf(char);
-                if (idx !== -1) {
-                    let t = idx;
-                    let kChar = key[keyIdx % key.length];
-                    let k = alphabet.chars.indexOf(kChar);
-                    let resCode = (mode === 'enc') ? (t + k) % alphabet.size : (t - k + alphabet.size) % alphabet.size;
-                    let resChar = alphabet.chars[resCode];
-                    
-                    result += resChar;
-                    stepsData.push({ char, t, kChar, k, resChar, resCode });
-                    keyIdx++;
-                } else {
-                    result += char;
-                    stepsData.push({ char, isSpecial: true });
+                let m_idx = alphabet.chars.indexOf(text[i]);
+                let k_char = key[i % keyLen];
+                let k_idx = alphabet.chars.indexOf(k_char);
+                
+                let res_idx;
+                
+                // Aplicamos la misma fórmula matemática (n = 37)
+                if (mode === 'enc') {
+                    res_idx = (m_idx + k_idx) % n;
+                } else { // dec
+                    res_idx = (m_idx - k_idx + n) % n;
                 }
+                
+                let res_char = alphabet.chars[res_idx];
+                result += res_char;
+                
+                // Guardamos para la tabla de pasos
+                stepsData.push({ 
+                    char: text[i], t: m_idx, 
+                    kChar: k_char, k: k_idx, 
+                    resChar: res_char, resCode: res_idx 
+                });
             }
+            
             this.res.innerText = result;
             this.data = { mode, stepsData, alphabet };
         } catch (e) {
-            this.showError(e.message);
+            this.showError("Error inesperado: " + e.message);
         }
     },
 
@@ -126,20 +129,19 @@ const vigenere = {
         this.container.classList.remove('hidden');
         this.steps.innerHTML = '';
         const size = this.data.alphabet.size;
-        this.formula.innerText = this.data.mode === 'enc' ? `(Texto + Clave) mod ${size}` : `(Texto - Clave + ${size}) mod ${size}`;
+        
+        this.formula.innerText = this.data.mode === 'enc' 
+            ? `(Texto + Clave) mod ${size}` 
+            : `(Texto - Clave + ${size}) mod ${size}`;
 
         this.data.stepsData.forEach(s => {
             const card = document.createElement('div');
             card.className = 'step-card';
-            if (s.isSpecial) {
-                card.innerHTML = `<small>Especial:</small><br><strong>${s.char}</strong>`;
-            } else {
-                card.innerHTML = `
-                    <div style="font-size:0.8rem; color:gray">Letra: ${s.char} (${s.t})</div>
-                    <div style="font-size:0.8rem; color:gray">Clave: ${s.kChar} (${s.k})</div>
-                    <div style="margin-top:5px; color:var(--primary); font-weight:bold">-> ${s.resChar} (${s.resCode})</div>
-                `;
-            }
+            card.innerHTML = `
+                <div style="font-size:0.8rem; color:gray">Letra: ${s.char} (${s.t})</div>
+                <div style="font-size:0.8rem; color:gray">Clave: ${s.kChar} (${s.k})</div>
+                <div style="margin-top:5px; color:var(--primary); font-weight:bold">-> ${s.resChar} (${s.resCode})</div>
+            `;
             this.steps.appendChild(card);
         });
     }
@@ -177,14 +179,14 @@ const transpo = {
     process(mode) {
         this.hideError();
         try {
-            const alphabet = getAlphabet('trans-alphabet');
-            const text = preprocessAndValidate(this.msg.value, alphabet);
-            const key = preprocessAndValidate(this.key.value, alphabet);
+            const text = preprocessAndValidate(this.msg.value);
+            const key = preprocessAndValidate(this.key.value);
 
             if (!text || !key) {
                 return this.showError("Completa los campos");
             }
 
+            const alphabet = ALPHABET;
             const cols = key.length;
             const rows = Math.ceil(text.length / cols);
             const { keyArr, order } = this.getOrder(key);
